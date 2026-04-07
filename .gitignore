@@ -1,0 +1,21 @@
+# Never commit credentials
+gcp/credentials.json
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Airflow
+airflow/logs/
+airflow/plugins/__pycache__/
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/.user.yml
+
+# OS
+.DS_Store
+Thumbs.db
