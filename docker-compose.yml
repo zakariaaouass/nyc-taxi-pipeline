@@ -1,0 +1,84 @@
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.8.1-python3.11
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY}
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__WEBSERVER__SECRET_KEY: 'mysecretkey123'
+    GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/gcp/credentials.json
+    GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+    RAW_BUCKET: ${RAW_BUCKET}
+    PROCESSED_BUCKET: ${PROCESSED_BUCKET}
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/plugins:/opt/airflow/plugins
+    - ./airflow/logs:/opt/airflow/logs
+    - ./spark:/opt/airflow/spark
+    - ./gcp:/opt/airflow/gcp
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+
+  airflow-init:
+    <<: *airflow-common
+    command: bash -c "airflow db init && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@local.com"
+
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    restart: always
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    restart: always
+
+  spark-master:
+    image: spark:python3
+    user: root
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /opt/gcp/credentials.json
+    ports:
+      - "8090:8080"
+      - "7077:7077"
+    volumes:
+      - ./spark:/opt/spark-jobs
+      - ./gcp:/opt/gcp
+
+  spark-worker:
+    image: spark:python3
+    user: root
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    environment:
+      SPARK_WORKER_MEMORY: 2g
+      SPARK_WORKER_CORES: 2
+      GOOGLE_APPLICATION_CREDENTIALS: /opt/gcp/credentials.json
+    volumes:
+      - ./spark:/opt/spark-jobs
+      - ./gcp:/opt/gcp
+    depends_on:
+      - spark-master
+
+volumes:
+  postgres-db:
