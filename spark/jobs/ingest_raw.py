@@ -1,24 +1,9 @@
 import argparse
 import os
 import requests
+from google.cloud import storage
 from pyspark.sql import SparkSession
 
-
-
-def get_spark():
-    creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "/opt/gcp/credentials.json")
-
-    print(f"🔑 Using credentials at: {creds}")
-
-    return (
-        SparkSession.builder
-        .appName("nyc-taxi-ingest")
-        .config("spark.hadoop.google.cloud.auth.service.account.enable", "true")
-        .config("spark.hadoop.google.cloud.auth.service.account.json.keyfile", creds)
-        .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
-        .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
-        .getOrCreate()
-    )
 
 def download_parquet(year: int, month: int) -> str:
     url = (
@@ -36,15 +21,25 @@ def download_parquet(year: int, month: int) -> str:
     return local_path
 
 
-def upload_to_gcs(spark, local_path: str, bucket: str, year: int, month: int):
-    df = spark.read.parquet(local_path)
-    row_count = df.count()
-    print(f"Loaded {row_count:,} rows")
+def count_rows(local_path: str) -> int:
+    spark = SparkSession.builder.appName("nyc-taxi-ingest").getOrCreate()
+    count = spark.read.parquet(local_path).count()
+    spark.stop()
+    return count
 
-    gcs_path = f"gs://{bucket}/yellow/{year}/{month:02d}/"
-    df.write.mode("overwrite").parquet(gcs_path)
-    print(f"Uploaded to {gcs_path}")
-    return row_count
+
+def upload_to_gcs(local_path: str, bucket: str, year: int, month: int):
+    """Upload parquet file to GCS using the Python client — no Spark GCS connector needed."""
+    creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "/opt/airflow/gcp/credentials.json")
+    print(f"Using credentials at: {creds}")
+
+    client = storage.Client.from_service_account_json(creds)
+    bucket_obj = client.bucket(bucket)
+
+    blob_name = f"yellow/{year}/{month:02d}/yellow_tripdata_{year}-{month:02d}.parquet"
+    blob = bucket_obj.blob(blob_name)
+    blob.upload_from_filename(local_path)
+    print(f"Uploaded to gs://{bucket}/{blob_name}")
 
 
 def main():
@@ -54,11 +49,10 @@ def main():
     parser.add_argument("--bucket", required=True)
     args = parser.parse_args()
 
-    spark = get_spark()
     local_path = download_parquet(args.year, args.month)
-    rows = upload_to_gcs(spark, local_path, args.bucket, args.year, args.month)
+    upload_to_gcs(local_path, args.bucket, args.year, args.month)
+    rows = count_rows(local_path)
     print(f"Done — {rows:,} rows uploaded for {args.year}-{args.month:02d}")
-    spark.stop()
 
 
 if __name__ == "__main__":
