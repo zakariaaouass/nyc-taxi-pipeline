@@ -297,7 +297,7 @@ docker-compose exec airflow-scheduler bash -c \
   "cd /opt/airflow/dbt/nyc_taxi && \
    ~/.local/bin/dbt test --profiles-dir /opt/airflow/dbt --no-version-check"
 ```
-Key Engineering Decisions
+##Key Engineering Decisions
 Why PySpark instead of Pandas?
 The dataset has 3M+ rows per month. Pandas loads everything into RAM and crashes. PySpark processes in parallel chunks and handles any data volume.
 Why GCS as intermediate storage?
