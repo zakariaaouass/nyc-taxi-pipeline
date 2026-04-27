@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: nyc_taxi_raw
+    database: nyc-taxi-pipeline-492610
+    schema: nyc_taxi_raw
+    tables:
+      - name: yellow_taxi
+        description: Raw yellow taxi trips loaded by Spark
+
+models:
+  - name: stg_yellow_taxi
+    description: Cleaned and renamed yellow taxi trips
+    columns:
+      - name: pickup_datetime
+        tests: [not_null]
+      - name: fare_amount
+        tests: [not_null]
+      - name: passenger_count
+        tests: [not_null]

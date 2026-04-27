@@ -20,6 +20,7 @@ x-airflow-common: &airflow-common
     - ./airflow/logs:/opt/airflow/logs
     - ./spark:/opt/airflow/spark
     - ./gcp:/opt/airflow/gcp
+    - ./dbt:/opt/airflow/dbt
   depends_on:
     postgres:
       condition: service_healthy

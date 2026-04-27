@@ -1,0 +1,29 @@
+[0m10:27:39.365623 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7d5e26a1e9d0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7d5e26a6f510>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7d5e26a6ccd0>]}
+
+
+============================== 10:27:39.374039 | 3698e20b-c696-4018-bfe4-21a84b67cd5d ==============================
+[0m10:27:39.374039 [info ] [MainThread]: Running with dbt=1.7.19
+[0m10:27:39.376730 [debug] [MainThread]: running dbt with arguments {'printer_width': '80', 'indirect_selection': 'eager', 'write_json': 'True', 'log_cache_events': 'False', 'partial_parse': 'True', 'cache_selected_only': 'False', 'warn_error': 'None', 'version_check': 'True', 'fail_fast': 'False', 'log_path': 'logs', 'debug': 'False', 'profiles_dir': '/home/airflow/.dbt', 'use_colors': 'True', 'use_experimental_parser': 'False', 'no_print': 'None', 'quiet': 'False', 'log_format': 'default', 'static_parser': 'True', 'invocation_command': 'dbt init nyc_taxi --skip-profile-setup', 'warn_error_options': 'WarnErrorOptions(include=[], exclude=[])', 'target_path': 'None', 'introspect': 'True', 'send_anonymous_usage_stats': 'True'}
+[0m10:27:39.378971 [warn ] [MainThread]: [ConfigFolderDirectory]: Unable to parse dict {'dir': PosixPath('/home/airflow/.dbt')}
+[0m10:27:39.380970 [info ] [MainThread]: Creating dbt configuration folder at 
+[0m10:27:39.386852 [debug] [MainThread]: Starter project path: /home/airflow/.local/lib/python3.11/site-packages/dbt/include/starter_project
+[0m10:27:39.610127 [info ] [MainThread]: 
+Your new dbt project "nyc_taxi" was created!
+
+For more information on how to configure the profiles.yml file,
+please consult the dbt documentation here:
+
+  https://docs.getdbt.com/docs/configure-your-profile
+
+One more thing:
+
+Need help? Don't hesitate to reach out to us via GitHub issues or on Slack:
+
+  https://community.getdbt.com/
+
+Happy modeling!
+
+[0m10:27:39.613216 [debug] [MainThread]: Resource report: {"command_name": "init", "command_success": true, "command_wall_clock_time": 0.30468976, "process_user_time": 2.247977, "process_kernel_time": 0.335996, "process_mem_max_rss": "105100", "process_in_blocks": "0", "process_out_blocks": "0"}
+[0m10:27:39.615251 [debug] [MainThread]: Command `dbt init` succeeded at 10:27:39.614985 after 0.31 seconds
+[0m10:27:39.617020 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7d5e2b2679d0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7d5e2b0fa1d0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7d5e26d144d0>]}
+[0m10:27:39.618901 [debug] [MainThread]: Flushing usage events
