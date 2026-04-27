@@ -302,6 +302,4 @@ docker-compose exec airflow-scheduler bash -c \
 
 
 
-## License
 
-MIT License — free to use, fork, and build on.
