@@ -297,6 +297,17 @@ docker-compose exec airflow-scheduler bash -c \
   "cd /opt/airflow/dbt/nyc_taxi && \
    ~/.local/bin/dbt test --profiles-dir /opt/airflow/dbt --no-version-check"
 ```
+Key Engineering Decisions
+Why PySpark instead of Pandas?
+The dataset has 3M+ rows per month. Pandas loads everything into RAM and crashes. PySpark processes in parallel chunks and handles any data volume.
+Why GCS as intermediate storage?
+Decouples Spark processing from BigQuery loading. If the BigQuery load fails, the clean Parquet is already in GCS — no need to re-run the expensive Spark job.
+Why dbt for transformations?
+Separates raw ingestion from business logic. Tests catch data quality issues before they reach dashboards. Column-level lineage is auto-documented. dbt run replaces hundreds of lines of manual SQL.
+Why Docker Compose instead of managed services?
+Zero cloud spend during development. Airflow and Spark run locally — only GCS and BigQuery are cloud services. Monthly cost: under $1.
+Why incremental dbt models?
+The fct_trips table uses is_incremental() logic — each month only appends new data instead of rebuilding the entire table. Saves BigQuery processing costs.
 
 
 
