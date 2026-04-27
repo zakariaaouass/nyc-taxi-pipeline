@@ -1,5 +1,8 @@
 # NYC Taxi Data Pipeline 
 
+<img width="3260" height="970" alt="Untitled Diagram drawio" src="https://github.com/user-attachments/assets/2ca10f19-0185-4cc6-b23a-2256299278b8" />
+
+
 > An end-to-end batch data pipeline that ingests, transforms and models 4.5M+ NYC taxi trips monthly using a modern open-source data stack.
 
 ---
