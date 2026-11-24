@@ -28,4 +28,6 @@ USER airflow
 RUN pip install --no-cache-dir \
     apache-airflow-providers-google==10.13.1 \
     pyspark==3.5.1 \
-    requests==2.31.0
+    requests==2.31.0 \
+    dbt-core~=1.7.0 \
+    dbt-bigquery~=1.7.0

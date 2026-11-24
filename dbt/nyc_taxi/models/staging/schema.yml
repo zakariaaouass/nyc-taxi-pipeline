@@ -2,19 +2,29 @@ version: 2
 
 sources:
   - name: nyc_taxi_raw
-    database: nyc-taxi-pipeline-492610
+    database: "{{ env_var('GCP_PROJECT_ID', 'nyc-taxi-pipeline-492610') }}"
     schema: nyc_taxi_raw
     tables:
       - name: yellow_taxi
-        description: Raw yellow taxi trips loaded by Spark
+        description: Cleaned monthly trips loaded by spark/jobs/load_bq.py (one month replaced per run)
 
 models:
   - name: stg_yellow_taxi
-    description: Cleaned and renamed yellow taxi trips
+    description: Deduplicated, renamed yellow taxi trips with a deterministic surrogate key
     columns:
+      - name: trip_key
+        description: MD5 hash of the trip's natural attributes
+        tests: [unique, not_null]
       - name: pickup_datetime
+        tests: [not_null]
+      - name: dropoff_datetime
         tests: [not_null]
       - name: fare_amount
         tests: [not_null]
       - name: passenger_count
         tests: [not_null]
+      - name: payment_type
+        tests:
+          - accepted_values:
+              values: [0, 1, 2, 3, 4, 5, 6]
+              quote: false

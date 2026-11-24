@@ -7,9 +7,11 @@ x-airflow-common: &airflow-common
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY}
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-    AIRFLOW__WEBSERVER__SECRET_KEY: 'mysecretkey123'
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
     GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/gcp/credentials.json
     GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+    GCP_REGION: ${GCP_REGION}
+    DBT_TARGET: ${DBT_TARGET:-dev}
     RAW_BUCKET: ${RAW_BUCKET}
     PROCESSED_BUCKET: ${PROCESSED_BUCKET}
     JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64

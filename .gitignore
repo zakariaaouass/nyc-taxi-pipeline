@@ -15,6 +15,15 @@ airflow/plugins/__pycache__/
 dbt/target/
 dbt/dbt_packages/
 dbt/.user.yml
+dbt/logs/
+dbt/nyc_taxi/logs/
+dbt/nyc_taxi/target/
+
+# Spark local output
+spark-warehouse/
+metastore_db/
+derby.log
+.pytest_cache/
 
 # OS
 .DS_Store

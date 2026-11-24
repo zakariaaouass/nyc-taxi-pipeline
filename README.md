@@ -24,7 +24,7 @@ NYC TLC Dataset (Public)
         │
         ▼
 ┌────────────────────────┐
-│  GCS Processed Bucket  │  ← Clean Parquet, partitioned by date
+│  GCS Processed Bucket  │  ← Clean Parquet, one file per month
 └────────────────────────┘
         │
         ▼
@@ -34,12 +34,12 @@ NYC TLC Dataset (Public)
         │
         ▼
 ┌──────────────────┐
-│       dbt        │  ← staging → intermediate → marts
+│       dbt        │  ← staging → star schema (fact + dims) + tests
 └──────────────────┘
         │
         ▼
 ┌──────────────────────┐
-│   BigQuery Dev/Prod  │  ← fct_trips, stg_yellow_taxi
+│   BigQuery Dev/Prod  │  ← fct_trips, dim_location, dim_date, dim_payment_type
 └──────────────────────┘
         │
         ▼
@@ -58,8 +58,8 @@ Every month this pipeline automatically:
 
 1. **Ingests** raw NYC TLC trip data (Parquet files) from the public dataset
 2. **Cleans** 4.5M+ rows using PySpark — removes invalid trips, fixes data types, engineers features
-3. **Loads** processed data into BigQuery via Google Cloud Storage
-4. **Models** the data using dbt — builds a star schema with automated tests and documentation
+3. **Loads** processed data into BigQuery via Google Cloud Storage — idempotently, so re-running a month replaces it
+4. **Models** the data using dbt — an incremental fact table, three dimensions, and tests that fail the pipeline on bad data
 5. **Visualises** business metrics in a Looker Studio dashboard
 
 ---
@@ -72,10 +72,11 @@ Every month this pipeline automatically:
 | Processing | Apache Spark / PySpark | 3.5.1 |
 | Storage | Google Cloud Storage | — |
 | Data Warehouse | Google BigQuery | — |
-| Transformation | dbt Core + dbt-bigquery | 1.7.0 |
+| Transformation | dbt Core + dbt-bigquery | 1.7.x |
 | Dashboard | Looker Studio | — |
 | Infrastructure | Docker + Docker Compose | — |
 | Language | Python | 3.11 |
+| Testing | pytest + dbt tests | — |
 | Cloud | Google Cloud Platform | — |
 
 ---
@@ -93,6 +94,9 @@ Every month this pipeline automatically:
 | Average trip duration | **18 minutes** |
 | Average tip | **$3.64** |
 
+
+> Results from a monthly run of the original pipeline. The stricter cleaning rules below remove a few more invalid trips, so counts change slightly after a re-run.
+
 ---
 
 ## Project Structure
@@ -101,117 +105,132 @@ Every month this pipeline automatically:
 nyc-taxi-pipeline/
 │
 ├── airflow/
-│   ├── dags/
-│   │   └── nyc_taxi_pipeline.py      ← Main DAG: ingest → transform → load → dbt
-│   ├── plugins/
-│   └── logs/
+│   └── dags/
+│       └── nyc_taxi_pipeline.py      ← DAG: ingest → transform → load → dbt build
 │
 ├── spark/
-│   └── jobs/
-│       ├── ingest_raw.py             ← Download TLC Parquet → GCS raw bucket
-│       ├── transform.py              ← Clean + feature engineer → GCS processed
-│       └── load_bq.py                ← Load processed Parquet → BigQuery table
+│   ├── jobs/
+│   │   ├── ingest_raw.py             ← Download TLC Parquet → GCS raw bucket
+│   │   ├── transform.py              ← Clean + feature engineer with Spark → GCS processed
+│   │   └── load_bq.py                ← Idempotent monthly load → BigQuery
+│   └── tests/
+│       └── test_transform.py         ← pytest unit tests for the cleaning rules
 │
 ├── dbt/
-│   ├── profiles.yml                  ← BigQuery connection config
+│   ├── profiles.yml                  ← BigQuery connection (project/region from .env)
 │   └── nyc_taxi/
 │       ├── dbt_project.yml
+│       ├── seeds/
+│       │   ├── taxi_zone_lookup.csv  ← Official TLC zone lookup (265 zones)
+│       │   └── payment_types.csv     ← TLC payment codes
 │       └── models/
 │           ├── staging/
-│           │   ├── stg_yellow_taxi.sql   ← Clean column names + filter bad rows
-│           │   └── schema.yml            ← Source definition + data quality tests
+│           │   ├── stg_yellow_taxi.sql   ← Rename, dedupe, surrogate key
+│           │   └── schema.yml            ← Source + tests
 │           └── marts/
-│               └── fct_trips.sql         ← Final fact table with business metrics
+│               ├── fct_trips.sql         ← Incremental fact table
+│               ├── dim_location.sql
+│               ├── dim_payment_type.sql
+│               ├── dim_date.sql
+│               └── schema.yml            ← Keys + relationship tests
 │
 ├── gcp/
 │   └── credentials.json              ← GCP service account key (gitignored)
 │
-├── Dockerfile.airflow                ← Custom image: Airflow + Java 17 + Spark 3.5
-├── docker-compose.yml                ← Airflow + Spark + Postgres services
+├── Dockerfile.airflow                ← Airflow + Java 17 + Spark 3.5 + dbt-bigquery
+├── docker-compose.yml                ← Airflow + Postgres (+ optional Spark standalone)
+├── requirements-dev.txt              ← pyspark + pytest for local tests
 ├── .env.example                      ← Environment variable template
 └── README.md
 ```
 
 ---
 
-## Data Model
+## Data Model (star schema)
 
 ```
-Source
-└── nyc_taxi_raw.yellow_taxi          ← Raw data loaded by Spark (4.5M rows/month)
-
-Staging (views)
-└── nyc_taxi_dev.stg_yellow_taxi      ← Renamed columns, filtered invalid rows
-
-Marts (tables)
-└── nyc_taxi_dev.fct_trips            ← Fact table with:
-        ├── trip_id (surrogate key)
-        ├── pickup_datetime / dropoff_datetime
-        ├── passenger_count
-        ├── trip_distance
-        ├── pickup_location_id / dropoff_location_id
-        ├── fare_amount / tip_amount / total_amount
-        ├── trip_duration_minutes
-        ├── cost_per_mile
-        └── payment_type_desc         ← Human-readable: Credit Card, Cash, etc.
+                 ┌──────────────────┐
+                 │    dim_date      │
+                 │  date_day (PK)   │
+                 └────────┬─────────┘
+                          │
+┌──────────────────┐   ┌──┴────────────────────────┐   ┌──────────────────────┐
+│  dim_location    │   │        fct_trips          │   │  dim_payment_type    │
+│ location_id (PK) ├───┤ trip_key (PK)             ├───┤ payment_type (PK)    │
+│ borough, zone,   │   │ pickup_date (FK)          │   │ payment_type_desc    │
+│ service_zone     │   │ pickup/dropoff_location_id│   └──────────────────────┘
+└──────────────────┘   │ payment_type (FK)         │
+                       │ passenger_count, distance │
+                       │ duration, fare, tip, tolls│
+                       │ total_amount, cost/mile   │
+                       └───────────────────────────┘
 ```
+
+| Model | Materialization | Notes |
+|---|---|---|
+| `stg_yellow_taxi` | view | snake_case names, exact duplicates removed, `trip_key` = MD5 of the trip's attributes |
+| `fct_trips` | **incremental** (merge on `trip_key`) | partitioned by month on `pickup_datetime`, clustered by location and payment type |
+| `dim_location` | table | from the official TLC zone lookup |
+| `dim_payment_type` | table | from the TLC data dictionary |
+| `dim_date` | table | one row per day in the data |
 
 ---
 
 ## Airflow DAG
 
-The `nyc_taxi_batch_pipeline` DAG runs on the 1st of every month at 6am.
+The `nyc_taxi_batch_pipeline` DAG runs on the 1st of every month at 6am and processes the month **two months earlier** (TLC publishes data with a ~2 month delay).
 
 ```
-ingest_raw_to_gcs → transform_to_processed → load_to_bigquery
+ingest_raw_to_gcs → transform_to_processed → load_to_bigquery → dbt_build
 ```
 
 | Task | Description | Timeout |
 |---|---|---|
 | `ingest_raw_to_gcs` | Downloads TLC Parquet, uploads to GCS raw bucket | 30 min |
-| `transform_to_processed` | PySpark cleaning job, writes to GCS processed bucket | 30 min |
-| `load_to_bigquery` | Loads processed Parquet into BigQuery table | 30 min |
+| `transform_to_processed` | PySpark cleaning job, writes one Parquet file to the processed bucket | 30 min |
+| `load_to_bigquery` | Replaces that month in `nyc_taxi_raw.yellow_taxi` (delete + append) | 30 min |
+| `dbt_build` | Seeds, models and tests in dependency order | 30 min |
+
+Buckets, project, region and dbt target come from `.env`, so nothing is hard-coded in the DAG.
 
 ---
 
 ## PySpark Transformations
 
-The `transform.py` job applies these cleaning rules:
+`transform.py` keeps the cleaning logic in a pure function (`clean_trips`) so it is unit tested without GCP.
 
 | Rule | Reason |
 |---|---|
-| Drop null pickup/dropoff times | Cannot calculate trip duration |
-| Filter `fare_amount > 0` | Negative fares = data corruption |
-| Filter `trip_distance > 0` | Zero distance = GPS error or cancelled |
-| Filter `passenger_count` between 1–6 | NYC taxi legal limit |
-| Filter `trip_duration_minutes` between 1–180 | Remove GPS errors and outliers |
-| Filter `fare_amount >= 3.0` | Below NYC minimum fare |
-| Cast types explicitly | Raw data has inconsistent types |
+| Cast every column to an explicit type | Raw files mix doubles/longs between years |
+| Drop nulls on pickup/dropoff time, distance, fare | Cannot compute duration or price metrics |
+| `trip_distance > 0` | Zero distance = GPS error or cancelled trip |
+| `fare_amount >= 3.0` | Below the NYC minimum fare |
+| `passenger_count` between 1 and 6 | NYC yellow cab legal limit |
+| `trip_duration_minutes` between 1 and 180 | Remove GPS errors and outliers |
+| Pickup inside the processed month | TLC files contain stray trips from other months |
 
-Engineered features added:
-- `trip_duration_minutes` — calculated from pickup/dropoff timestamps
-- `pickup_date` — extracted date for partitioning
-- `pickup_hour` — extracted hour for hourly analysis
-- `cost_per_mile` — derived fare efficiency metric
+Engineered features: `trip_duration_minutes`, `cost_per_mile`, `pickup_date`, `pickup_hour`.
+
+The data stays in Spark end to end: it is written with `coalesce(1)` as a single Parquet file, never collected to the driver.
 
 ---
 
-## dbt Tests
+## Data Quality
 
-dbt runs these data quality tests after every transformation:
+**dbt tests** (run by `dbt build` inside the DAG; a failing test fails the `dbt_build` task):
 
-```yaml
-- name: pickup_datetime
-  tests: [not_null]
+| Model | Tests |
+|---|---|
+| `stg_yellow_taxi` | `trip_key` unique + not null, not null on timestamps, fare and passengers, `payment_type` accepted values 0–6 |
+| `fct_trips` | `trip_key` unique + not null, relationships to `dim_date`, `dim_location` (pickup and dropoff) and `dim_payment_type` |
+| dimensions | primary keys unique + not null |
 
-- name: fare_amount
-  tests: [not_null]
+**Unit tests** for the Spark rules:
 
-- name: passenger_count
-  tests: [not_null]
+```bash
+pip install -r requirements-dev.txt
+pytest spark/tests -q
 ```
-
-If any test fails, the pipeline stops and Airflow marks the run as failed.
 
 ---
 
@@ -229,91 +248,80 @@ If any test fails, the pipeline stops and Airflow marks the run as failed.
 2. Enable APIs: BigQuery API, Cloud Storage API, IAM API
 3. Create a service account → download JSON key → rename to `credentials.json`
 4. Create two GCS buckets: `nyc-taxi-raw-yourname`, `nyc-taxi-processed-yourname`
-5. Create three BigQuery datasets: `nyc_taxi_raw`, `nyc_taxi_dev`, `nyc_taxi_prod` (region: `us-central1`)
+5. Create three BigQuery datasets in your region (e.g. `us-central1`): `nyc_taxi_raw`, `nyc_taxi_dev`, `nyc_taxi_prod`
 
 ### Local Setup
 
 ```bash
-# Clone the repo
 git clone https://github.com/zakariaaouass/nyc-taxi-pipeline.git
-cd nyc-taxi-pipeline/nyc-taxi-pipeline
-
-# Create environment file
+cd nyc-taxi-pipeline
 cp .env.example .env
 ```
 
-Edit `.env` with your values:
-
-```env
-GCP_PROJECT_ID=your-project-id
-GCP_REGION=us-central1
-RAW_BUCKET=nyc-taxi-raw-yourname
-PROCESSED_BUCKET=nyc-taxi-processed-yourname
-FERNET_KEY=your-fernet-key-here
-AIRFLOW_UID=50000
-```
+Edit `.env` with your values (project, region, bucket names, `FERNET_KEY`, `AIRFLOW_SECRET_KEY`).
 
 ```bash
 # Add GCP credentials
 cp /path/to/credentials.json gcp/credentials.json
 
-# Build the custom Docker image (Airflow + Java 17 + Spark 3.5)
-# Takes 5-10 minutes on first build
+# Build the custom image (Airflow + Java 17 + Spark 3.5 + dbt) — 5-10 minutes the first time
 docker-compose build
 
-# Initialise Airflow database
+# Initialise Airflow and start the services
 docker-compose up airflow-init
-
-# Start all services
 docker-compose up -d
-
-# Verify everything is running
 docker-compose ps
 ```
 
 ### Run the Pipeline
 
 1. Open Airflow at `http://localhost:8080` — login: `admin / admin`
-2. Find `nyc_taxi_batch_pipeline` → toggle **ON**
-3. Click **▶ Trigger DAG**
-4. Watch all 3 tasks turn green (~15 minutes total)
-5. Verify data in BigQuery:
+2. Turn **ON** `nyc_taxi_batch_pipeline` and click **▶ Trigger DAG**
+3. Watch the 4 tasks turn green
+4. Check BigQuery:
 
 ```sql
 SELECT
-  COUNT(*)                     AS total_trips,
-  ROUND(AVG(fare_amount), 2)   AS avg_fare,
-  SUM(total_amount)            AS total_revenue
-FROM `your-project.nyc_taxi_raw.yellow_taxi`
+  z.borough,
+  COUNT(*)                         AS trips,
+  ROUND(AVG(f.fare_amount), 2)     AS avg_fare,
+  ROUND(SUM(f.total_amount), 0)    AS revenue
+FROM `your-project.nyc_taxi_dev.fct_trips` f
+JOIN `your-project.nyc_taxi_dev.dim_location` z
+  ON f.pickup_location_id = z.location_id
+GROUP BY z.borough
+ORDER BY trips DESC
 ```
 
-### Run dbt Models
+### Run dbt manually
 
 ```bash
-# Run all models
 docker-compose exec airflow-scheduler bash -c \
-  "cd /opt/airflow/dbt/nyc_taxi && \
-   ~/.local/bin/dbt run --profiles-dir /opt/airflow/dbt --no-version-check"
-
-# Run data quality tests
-docker-compose exec airflow-scheduler bash -c \
-  "cd /opt/airflow/dbt/nyc_taxi && \
-   ~/.local/bin/dbt test --profiles-dir /opt/airflow/dbt --no-version-check"
+  "cd /opt/airflow/dbt/nyc_taxi && dbt build --profiles-dir /opt/airflow/dbt --target dev"
 ```
+
+### Upgrading from the first version
+
+Column types in `nyc_taxi_raw.yellow_taxi` changed (explicit casts, two new columns), and older loads could contain duplicated months. Drop `nyc_taxi_raw.yellow_taxi` and `nyc_taxi_dev.fct_trips` once, then re-run the months you need.
+
+---
+
 ## Key Engineering Decisions
-Why PySpark instead of Pandas?
-The dataset has 3M+ rows per month. Pandas loads everything into RAM and crashes. PySpark processes in parallel chunks and handles any data volume.
-Why GCS as intermediate storage?
-Decouples Spark processing from BigQuery loading. If the BigQuery load fails, the clean Parquet is already in GCS — no need to re-run the expensive Spark job.
-Why dbt for transformations?
-Separates raw ingestion from business logic. Tests catch data quality issues before they reach dashboards. Column-level lineage is auto-documented. dbt run replaces hundreds of lines of manual SQL.
-Why Docker Compose instead of managed services?
-Zero cloud spend during development. Airflow and Spark run locally — only GCS and BigQuery are cloud services. Monthly cost: under $1.
-Why incremental dbt models?
-The fct_trips table uses is_incremental() logic — each month only appends new data instead of rebuilding the entire table. Saves BigQuery processing costs.
 
+**Why PySpark instead of Pandas?**
+A month is 3M+ rows. Spark processes it in parallel and writes Parquet directly, so the job never has to fit the whole month in one Python process.
 
+**Why GCS as intermediate storage?**
+Decouples processing from loading. If the BigQuery load fails, the clean Parquet is already in GCS — no need to re-run the Spark job.
 
+**Why idempotent monthly loads?**
+`load_bq.py` deletes the month before appending it, and Spark keeps only that month's trips. Re-running a failed or corrected month never duplicates data.
 
+**Why dbt?**
+Separates ingestion from business logic, documents lineage, and tests every build. Bad data fails the DAG instead of reaching the dashboard.
 
+**Why an incremental, partitioned fact table?**
+`fct_trips` merges only the latest month on `trip_key` instead of rebuilding years of history, and monthly partitions plus clustering reduce BigQuery scan costs.
 
+**Why Docker Compose instead of managed services?**
+Zero cloud spend during development. Airflow and Spark (local mode inside the Airflow container) run locally — only GCS and BigQuery are cloud services. Monthly cost: under $1.
