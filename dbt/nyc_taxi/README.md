@@ -1,15 +1,17 @@
-Welcome to your new dbt project!
+# nyc_taxi dbt project
 
-### Using the starter project
+Star schema on top of `nyc_taxi_raw.yellow_taxi`:
 
-Try running the following commands:
-- dbt run
-- dbt test
+| Model | Type | Grain / purpose |
+|---|---|---|
+| `stg_yellow_taxi` | view | Renamed, deduplicated trips with `trip_key` |
+| `fct_trips` | incremental table | One row per trip, partitioned by month |
+| `dim_location` | table | TLC taxi zones (seed `taxi_zone_lookup`) |
+| `dim_payment_type` | table | Payment codes (seed `payment_types`) |
+| `dim_date` | table | Calendar days |
 
+Run everything (seeds, models, tests) with:
 
-### Resources:
-- Learn more about dbt [in the docs](https://docs.getdbt.com/docs/introduction)
-- Check out [Discourse](https://discourse.getdbt.com/) for commonly asked questions and answers
-- Join the [chat](https://community.getdbt.com/) on Slack for live discussions and support
-- Find [dbt events](https://events.getdbt.com) near you
-- Check out [the blog](https://blog.getdbt.com/) for the latest news on dbt's development and best practices
+```bash
+dbt build --profiles-dir /opt/airflow/dbt --target dev
+```

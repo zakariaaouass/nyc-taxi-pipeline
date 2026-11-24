@@ -4,18 +4,18 @@ nyc_taxi:
     dev:
       type: bigquery
       method: service-account
-      project: nyc-taxi-pipeline-492610
+      project: "{{ env_var('GCP_PROJECT_ID', 'nyc-taxi-pipeline-492610') }}"
       dataset: nyc_taxi_dev
       keyfile: /opt/airflow/gcp/credentials.json
-      location: us-central1
+      location: "{{ env_var('GCP_REGION', 'us-central1') }}"
       threads: 4
       timeout_seconds: 300
     prod:
       type: bigquery
       method: service-account
-      project: nyc-taxi-pipeline-492610
+      project: "{{ env_var('GCP_PROJECT_ID', 'nyc-taxi-pipeline-492610') }}"
       dataset: nyc_taxi_prod
       keyfile: /opt/airflow/gcp/credentials.json
-      location: us-central1
+      location: "{{ env_var('GCP_REGION', 'us-central1') }}"
       threads: 4
       timeout_seconds: 300
